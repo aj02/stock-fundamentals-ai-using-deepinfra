@@ -1,0 +1,105 @@
+[project]
+name = "fundamentals-ai-backend"
+version = "0.1.0"
+description = "Multi-agent fundamental analysis for Indian equities — backend"
+requires-python = ">=3.12"
+license = { text = "TBD" }
+
+# All runtime dependencies for the project. Listed here (not split into
+# requirements.txt) so a single source of truth declares what we depend on.
+# Step-introduction notes are inline so a reader can see when each one starts
+# being used.
+dependencies = [
+    # API + server
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+
+    # Validation
+    "pydantic>=2.9",
+    "pydantic-settings>=2.5",
+
+    # Agent layer (used from step 4 onwards)
+    "pydantic-ai>=0.0.13",
+
+    # LLM SDKs (used from step 4 onwards)
+    "anthropic>=0.39",
+    "openai>=1.50",
+
+    # Database
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.29",
+    "alembic>=1.13",
+
+    # Cache / coordination
+    "redis[hiredis]>=5.1",
+
+    # HTTP client (used by scraper + tests)
+    "httpx>=0.27",
+
+    # Data sources (used from step 3 onwards)
+    "yfinance>=0.2.50",
+    "selectolax>=0.3.21",
+    "pypdf>=5.1",
+    "pdfplumber>=0.11",
+
+    # Logging
+    "structlog>=24.4",
+
+    # WebSockets (used from step 10 onwards; also pulled in by uvicorn[standard])
+    "websockets>=13",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.7",
+    "mypy>=1.13",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+# ─────────────────────────── ruff ──────────────────────────────────
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",      # pycodestyle / pyflakes
+    "I",                # isort
+    "B",                # flake8-bugbear
+    "UP",               # pyupgrade
+    "N",                # pep8-naming
+    "S",                # bandit (security)
+    "ASYNC",            # async-specific
+    "C4",               # comprehensions
+    "SIM",              # simplifications
+]
+ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "S105", "S106"]   # asserts + hardcoded test secrets are fine
+"alembic/versions/*" = ["E501", "N999"]  # generated files / long lines OK
+
+# ─────────────────────────── mypy ──────────────────────────────────
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+exclude = ["alembic/versions/"]
+
+[[tool.mypy.overrides]]
+module = ["yfinance.*", "selectolax.*", "pdfplumber.*", "pypdf.*"]
+ignore_missing_imports = true
+
+# ─────────────────────────── pytest ────────────────────────────────
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"

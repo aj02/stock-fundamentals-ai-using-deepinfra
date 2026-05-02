@@ -1,0 +1,113 @@
+# fundamentals-ai — docker-compose
+#
+# Services: postgres + redis + alembic-migrate (one-shot) + backend (FastAPI)
+# + frontend (Next.js). One command (`docker compose up`) brings the whole
+# stack to a healthy state, with the frontend reachable at localhost:3000.
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: fundamentals_ai_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-fundamentals}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fundamentals}
+      POSTGRES_DB: ${POSTGRES_DB:-fundamentals_ai}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fundamentals} -d ${POSTGRES_DB:-fundamentals_ai}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    container_name: fundamentals_ai_redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  # One-shot service: runs `alembic upgrade head` once, then exits 0. The
+  # backend's `depends_on` waits for `service_completed_successfully`, which
+  # makes "schema is up-to-date" a hard precondition for the API booting.
+  alembic-migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fundamentals_ai_alembic_migrate
+    restart: "no"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-fundamentals}:${POSTGRES_PASSWORD:-fundamentals}@postgres:5432/${POSTGRES_DB:-fundamentals_ai}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["alembic", "upgrade", "head"]
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fundamentals_ai_backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-fundamentals}:${POSTGRES_PASSWORD:-fundamentals}@postgres:5432/${POSTGRES_DB:-fundamentals_ai}
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      alembic-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  frontend:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      args:
+        # NEXT_PUBLIC_* must be set at BUILD time — they're inlined into the
+        # client bundle. If you change BACKEND_PORT, rebuild the frontend.
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:${BACKEND_PORT:-8000}
+        NEXT_PUBLIC_WS_BASE_URL: ws://localhost:${BACKEND_PORT:-8000}
+    container_name: fundamentals_ai_frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:3000/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  postgres_data:
+    name: fundamentals_ai_postgres_data
+  redis_data:
+    name: fundamentals_ai_redis_data

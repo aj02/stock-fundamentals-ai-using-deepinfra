@@ -1,0 +1,10 @@
+node_modules
+.next
+out
+.turbo
+.git
+.gitignore
+.env*
+!.env.example
+README.md
+*.log
